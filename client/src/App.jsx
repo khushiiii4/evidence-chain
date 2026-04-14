@@ -173,8 +173,10 @@ function UploadSection({ onUploadSuccess }) {
 function VerifySection({ prefillCid }) {
   const [cid,     setCid]     = useState("");
   const [loading, setLoading] = useState(false);
+  const [tampering, setTampering] = useState(false);
   const [result,  setResult]  = useState(null);
   const [error,   setError]   = useState(null);
+  const [tamperMsg, setTamperMsg] = useState("");
 
   // Allow parent to prefill CID
   useEffect(() => {
@@ -187,6 +189,7 @@ function VerifySection({ prefillCid }) {
     setLoading(true);
     setResult(null);
     setError(null);
+    setTamperMsg("");
 
     try {
       const res  = await fetch(`${API}/verify?cid=${encodeURIComponent(trimmed)}`);
@@ -201,7 +204,27 @@ function VerifySection({ prefillCid }) {
   };
 
   const isValid   = result?.valid === true;
-  const isTampered = result?.valid === false;
+
+  const handleSimulateTampering = async () => {
+    const trimmed = cid.trim();
+    if (!trimmed) return;
+    setTampering(true);
+    setError(null);
+    setTamperMsg("");
+
+    try {
+      const res = await fetch(`${API}/simulate-tamper?cid=${encodeURIComponent(trimmed)}`, {
+        method: "POST",
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Tampering simulation failed");
+      setTamperMsg(data.message || "Tampering simulated. Verify again.");
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setTampering(false);
+    }
+  };
 
   return (
     <div className="card">
@@ -227,16 +250,30 @@ function VerifySection({ prefillCid }) {
             onClick={handleVerify}
             disabled={!cid.trim() || loading}
           >
-            {loading ? <div className="spinner" style={{ borderTopColor: "#fff" }} /> : "Verify"}
+            {loading ? <div className="spinner" style={{ borderTopColor: "#fff" }} /> : "Verify Evidence"}
+          </button>
+          <button
+            className="btn btn-refresh"
+            onClick={handleSimulateTampering}
+            disabled={!cid.trim() || tampering}
+            title="Modify the locally stored file to simulate tampering"
+          >
+            {tampering ? "Tampering..." : "Simulate Tampering"}
           </button>
         </div>
       </div>
+
+      {tamperMsg && (
+        <div style={{ marginTop: 12, fontSize: 13, color: "var(--text-muted)" }}>
+          {tamperMsg}
+        </div>
+      )}
 
       {/* Result */}
       {result && (
         <div className={`result-box ${isValid ? "success" : "error"}`} style={{ marginTop: 20 }}>
           <div className={`result-status ${isValid ? "status-valid" : "status-tampered"}`}>
-            {isValid ? "✅ VALID — File is intact" : "🚨 TAMPERED — File has been modified"}
+            {isValid ? "✅ VALID (not tampered)" : "🚨 TAMPERED"}
           </div>
           <div className="result-row">
             <span className="result-key">CID</span>
@@ -244,11 +281,11 @@ function VerifySection({ prefillCid }) {
           </div>
           <div className="result-row">
             <span className="result-key">Stored Hash</span>
-            <span className="result-val">{result.storedHash}</span>
+            <span className="result-val">{result.originalHash || result.storedHash}</span>
           </div>
           <div className="result-row">
             <span className="result-key">Computed Hash</span>
-            <span className="result-val">{result.computedHash}</span>
+            <span className="result-val">{result.currentHash || result.computedHash}</span>
           </div>
           <div className="result-row">
             <span className="result-key">Record #</span>

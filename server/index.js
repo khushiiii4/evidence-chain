@@ -106,30 +106,44 @@ app.post("/upload", upload.single("file"), async (req, res) => {
   try {
     // 1. SHA-256 hash
     const hash = await hashFile(tempPath);
+    console.log(`[debug] Hash generated: ${hash}`);
 
-    // 2. Generate real CIDv1 + persist to local store
+    // 2. Generate CID + persist to local store
     const cid = await storeLocalIPFS(tempPath);
+    console.log(`[debug] CID generated: ${cid}`);
 
     // 3. Anchor on blockchain
     const contract = getSignerContract();
-    const tx       = await contract.storeEvidence(cid, hash);
-    await tx.wait();
+    console.log(`[debug] Sending transaction to store Evidence...`);
+    const tx = await contract.storeEvidence(cid, hash);
+    console.log(`[debug] Transaction sent! Waiting for confirmation... Tx Hash: ${tx.hash}`);
+    
+    // Wait for the transaction to be mined
+    const receipt = await tx.wait();
+    console.log(`[debug] Transaction confirmed in block: ${receipt.blockNumber}`);
 
     cleanup(tempPath);
 
-    console.log(`[upload] ✅ CID=${cid}  hash=${hash.slice(0, 12)}…  tx=${tx.hash.slice(0, 12)}…`);
+    console.log(`[upload] ✅ Success! CID=${cid} hash=${hash.slice(0, 12)}... tx=${tx.hash.slice(0, 12)}...`);
 
     return res.json({
       success: true,
       cid,
       hash,
-      txHash:  tx.hash,
+      txHash: tx.hash,
       ipfsUrl: `http://localhost:5000/ipfs/${cid}`,
     });
   } catch (err) {
     cleanup(tempPath);
-    console.error("[/upload]", err.message);
-    return res.status(502).json({ error: blockchainErrorMsg(err) });
+    console.error("\n[ERROR] Transaction / Upload failed!");
+    console.error(" - Message:", err.message);
+    if (err.info || err.data) {
+      console.error(" - Blockchain Error Info:", err.info || err.data);
+    }
+    if (err.transaction) {
+      console.error(" - Failed Transaction Hash:", err.transaction.hash);
+    }
+    return res.status(502).json({ error: blockchainErrorMsg(err), rawError: err.message });
   }
 });
 
@@ -192,6 +206,8 @@ app.get("/verify", async (req, res) => {
       valid:         isValid,
       status:        isValid ? "VALID" : "TAMPERED",
       cid,
+      originalHash:  storedHash,
+      currentHash:   computedHash,
       storedHash,
       computedHash,
       evidenceIndex,
@@ -199,6 +215,34 @@ app.get("/verify", async (req, res) => {
   } catch (err) {
     console.error("[/verify]", err.message);
     return res.status(500).json({ error: err.message || "Verification failed" });
+  }
+});
+
+/**
+ * POST /simulate-tamper?cid=<CID>
+ * Mutates a stored file in local ipfs-store for demo/testing tamper detection.
+ */
+app.post("/simulate-tamper", (req, res) => {
+  const { cid } = req.query;
+  if (!cid) return res.status(400).json({ error: "Query param 'cid' is required" });
+
+  try {
+    const storePath = path.join("ipfs-store", cid);
+    if (!fs.existsSync(storePath)) {
+      return res.status(404).json({ error: "File not found in local store" });
+    }
+
+    // Append a small marker to change file content and force hash mismatch.
+    fs.appendFileSync(storePath, `\n[TAMPERED ${Date.now()}]`);
+
+    return res.json({
+      success: true,
+      cid,
+      message: "Local file modified. Run /verify again to see TAMPERED.",
+    });
+  } catch (err) {
+    console.error("[/simulate-tamper]", err.message);
+    return res.status(500).json({ error: err.message || "Tamper simulation failed" });
   }
 });
 
