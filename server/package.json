@@ -1,0 +1,21 @@
+{
+  "name": "evidence-chain-server",
+  "version": "1.0.0",
+  "description": "Backend for anonymous evidence submission system",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev":   "nodemon index.js"
+  },
+  "dependencies": {
+    "cors":          "^2.8.5",
+    "dotenv":        "^16.4.5",
+    "ethers":        "^6.13.1",
+    "express":       "^4.19.2",
+    "multer":        "^1.4.5-lts.1",
+    "multiformats":  "^13.1.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.3"
+  }
+}
