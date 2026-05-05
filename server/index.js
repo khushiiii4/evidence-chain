@@ -43,27 +43,21 @@ async function storeLocalIPFS(filePath) {
   const cid        = await generateCID(fileBuffer);
   const storePath  = path.join("ipfs-store", cid);
 
-  // Idempotent: skip if already stored (same content = same CID)
-  if (!fs.existsSync(storePath)) {
-    fs.copyFileSync(filePath, storePath);
-  }
+  // Always overwrite to ensure we repair any files that were altered by "simulate-tamper"
+  fs.copyFileSync(filePath, storePath);
 
   return cid;
 }
 
 // ─── Blockchain helpers ───────────────────────────────────────────────────────
-function getSignerContract() {
-  const provider = new ethers.JsonRpcProvider(
-    process.env.RPC_URL || "http://127.0.0.1:8545"
-  );
-  const wallet = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
-  return new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, wallet);
+async function getSignerContract() {
+  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
+  const signer = await provider.getSigner(0);
+  return new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, signer);
 }
 
 function getReadContract() {
-  const provider = new ethers.JsonRpcProvider(
-    process.env.RPC_URL || "http://127.0.0.1:8545"
-  );
+  const provider = new ethers.JsonRpcProvider("http://127.0.0.1:8545");
   return new ethers.Contract(process.env.CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 }
 
@@ -85,9 +79,6 @@ function cleanup(filePath) {
 function blockchainErrorMsg(err) {
   if (err.code === "ECONNREFUSED" || err.message?.includes("could not detect network")) {
     return "Blockchain node unreachable – open a terminal and run: npx hardhat node";
-  }
-  if (err.message?.includes("invalid private key") || err.message?.includes("PRIVATE_KEY")) {
-    return "Invalid PRIVATE_KEY in .env – check server/.env";
   }
   return err.message || "Blockchain error";
 }
@@ -113,7 +104,7 @@ app.post("/upload", upload.single("file"), async (req, res) => {
     console.log(`[debug] CID generated: ${cid}`);
 
     // 3. Anchor on blockchain
-    const contract = getSignerContract();
+    const contract = await getSignerContract();
     console.log(`[debug] Sending transaction to store Evidence...`);
     const tx = await contract.storeEvidence(cid, hash);
     console.log(`[debug] Transaction sent! Waiting for confirmation... Tx Hash: ${tx.hash}`);
